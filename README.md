@@ -63,3 +63,10 @@ The live camera preview works best on Vercel because Vercel uses HTTPS. The brow
 Current records are stored in browser `localStorage`. This means data is per browser/device and is not shared between employees or computers.
 
 For production, connect the system to Supabase (database + authentication + storage) before using it for real employee, payroll, loan, document, or audit data.
+
+
+## Security patch
+Updated for Vercel deployment:
+- Next.js 15.5.27
+- React 19.1.8
+- React DOM 19.1.8
