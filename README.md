@@ -1,13 +1,12 @@
-# Underchargers HR System — Vercel Deployment Version
+# Underchargers HR System
 
-This package is ready to deploy as a Next.js project on Vercel.
+Vercel-ready Next.js wrapper for the Underchargers HR System.
 
-## Demo login
+## Main system file
 
-- Username: `Jerome123`
-- Password: `JJ123`
+`public/hr.html`
 
-> Important: the demo login is stored in frontend code. It is suitable for a prototype only, not secure production authentication.
+There is no login screen and no camera module in this version.
 
 ## Run locally
 
@@ -16,57 +15,18 @@ npm install
 npm run dev
 ```
 
-Then open:
+Open `http://localhost:3000`.
 
-```text
-http://localhost:3000
-```
+## Deploy to Vercel
 
-Health check:
+1. Upload all files in this folder to the root of a GitHub repository.
+2. Import the repository in Vercel.
+3. Framework preset: Next.js.
+4. Keep the default build/install commands.
+5. Deploy.
 
-```text
-http://localhost:3000/api/health
-```
+The root URL redirects to `/hr.html` automatically.
 
-## Deploy through GitHub + Vercel
+## Storage note
 
-1. Extract this ZIP.
-2. Create a new GitHub repository.
-3. Upload/push the **contents of this folder** to the repository root.
-4. In Vercel, choose **Add New → Project**.
-5. Import the GitHub repository.
-6. Vercel should detect **Next.js** automatically.
-7. Keep the default build settings:
-   - Build Command: `next build` / `npm run build`
-   - Install Command: `npm install`
-   - Output: Next.js default
-8. Click **Deploy**.
-
-No environment variables are required for this prototype.
-
-## Main HR source
-
-The complete HR interface is located at:
-
-```text
-public/hr.html
-```
-
-The Next.js home page displays it at `/` in a same-origin iframe and explicitly allows camera access.
-
-## Camera
-
-The live camera preview works best on Vercel because Vercel uses HTTPS. The browser will still ask the user for camera permission.
-
-## Data storage
-
-Current records are stored in browser `localStorage`. This means data is per browser/device and is not shared between employees or computers.
-
-For production, connect the system to Supabase (database + authentication + storage) before using it for real employee, payroll, loan, document, or audit data.
-
-
-## Security patch
-Updated for Vercel deployment:
-- Next.js 15.5.27
-- React 19.1.8
-- React DOM 19.1.8
+This prototype stores its demo data in browser `localStorage`. Data is not shared between browsers/devices. Connect a real database (for example Supabase) before production HR use.
