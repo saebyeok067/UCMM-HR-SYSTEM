@@ -1,0 +1,16 @@
+UNDERCHARGERS HR SYSTEM - FIRST SETUP
+
+1. Upload all files/folders in this folder to the ROOT of your GitHub repo.
+2. In Supabase SQL Editor, run: supabase/setup.sql
+3. Create your first user in Supabase Authentication > Users.
+4. In Table Editor > profiles, set that user to:
+   role = hr_admin
+   status = Active
+5. In Vercel Settings > Environment Variables add:
+   NEXT_PUBLIC_SUPABASE_URL
+   NEXT_PUBLIC_SUPABASE_ANON_KEY
+   SUPABASE_SERVICE_ROLE_KEY
+6. Redeploy Vercel.
+7. Open your Vercel URL. It should open /login.
+8. Login as the first HR Admin.
+9. Open Users in the HR system to create HR Staff, Managers, and Employees.

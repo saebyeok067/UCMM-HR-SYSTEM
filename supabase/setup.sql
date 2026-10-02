@@ -21,8 +21,9 @@ alter table public.profiles enable row level security;
 drop policy if exists "Users can view own profile" on public.profiles;
 create policy "Users can view own profile" on public.profiles for select using (auth.uid() = id);
 
+-- Do not allow normal users to update role/status/branch directly.
+-- HR Admin changes user access through the protected server API using the service-role key.
 drop policy if exists "Users can update own profile" on public.profiles;
-create policy "Users can update own profile" on public.profiles for update using (auth.uid() = id) with check (auth.uid() = id);
 
 create or replace function public.handle_new_user()
 returns trigger
