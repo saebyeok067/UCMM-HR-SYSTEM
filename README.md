@@ -1,32 +1,67 @@
-# Underchargers HR System
+# Underchargers HR System — Supabase Users + Vercel
 
-Vercel-ready Next.js wrapper for the Underchargers HR System.
+This version adds real Supabase email/password authentication to the existing Underchargers HR prototype.
 
-## Main system file
+## What is included
+- Existing HR system in `public/hr.html`
+- Supabase login page `/login`
+- Protected `/hr.html`
+- Logout
+- User profile shown in the HR header
+- HR Admin-only `/users` page
+- Create user accounts
+- Change user role, branch and Active/Inactive status
+- Roles: `hr_admin`, `hr_staff`, `manager`, `employee`
 
-`public/hr.html`
+## Important current limitation
+User accounts are stored in Supabase, but the HR records inside `public/hr.html` are still stored in browser `localStorage`. This means HR data is not yet shared across different computers/users. A later database migration can move Employees, Attendance, Payroll, Benefits, etc. into Supabase tables.
 
-There is no login screen and no camera module in this version.
+## 1. Supabase setup
+Create a Supabase project. Open **SQL Editor** and run:
 
-## Run locally
+`supabase/setup.sql`
 
-```bash
+Then open **Authentication > Users** and manually create your first HR Admin account.
+
+After creating the first account, open **Table Editor > profiles** and change that user's `role` to:
+
+`hr_admin`
+
+## 2. Environment variables
+Copy `.env.example` to `.env.local` for local development.
+
+Fill these values from Supabase Project Settings / API:
+
+```
+NEXT_PUBLIC_SUPABASE_URL=...
+NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+SUPABASE_SERVICE_ROLE_KEY=...
+```
+
+Never expose the service role key in browser code.
+
+## 3. Local test
+```
 npm install
 npm run dev
 ```
-
 Open `http://localhost:3000`.
 
-## Deploy to Vercel
+## 4. GitHub + Vercel
+Upload the contents of this folder to the root of your GitHub repository.
 
-1. Upload all files in this folder to the root of a GitHub repository.
-2. Import the repository in Vercel.
-3. Framework preset: Next.js.
-4. Keep the default build/install commands.
-5. Deploy.
+In Vercel, add the same three Environment Variables under:
 
-The root URL redirects to `/hr.html` automatically.
+**Project > Settings > Environment Variables**
 
-## Storage note
+Then redeploy.
 
-This prototype stores its demo data in browser `localStorage`. Data is not shared between browsers/devices. Connect a real database (for example Supabase) before production HR use.
+## Routes
+- `/` -> redirects to `/hr.html`
+- `/login` -> user login
+- `/hr.html` -> protected HR system
+- `/users` -> HR Admin user management
+- `/api/health` -> health check
+
+## First HR Admin
+Because the `/users` page is admin-only, create the first account manually in Supabase Authentication. Then update its `profiles.role` to `hr_admin` in Table Editor.
