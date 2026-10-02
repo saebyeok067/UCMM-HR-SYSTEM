@@ -41,16 +41,16 @@ export default function UsersPage() {
   }
 
   return <main className="admin-page"><div className="admin-wrap">
-    <div className="admin-top"><div><h1>System Users</h1><p>Create and manage accounts allowed to sign in to the Underchargers HR System.</p></div><div className="admin-actions"><a className="soft-btn" href="/hr.html" style={{textDecoration:"none"}}>← Back to HR System</a><a className="danger-btn" href="/api/auth/logout" style={{textDecoration:"none"}}>Log Out</a></div></div>
+    <div className="admin-top"><div><h1>System Users</h1><p><b>Add User</b> creates an actual Supabase Authentication login account. <b>Add Employee</b> in the HR System is a separate employee HR record.</p></div><div className="admin-actions"><a className="soft-btn" href="/hr.html" style={{textDecoration:"none"}}>← Back to HR System</a><a className="danger-btn" href="/api/auth/logout" style={{textDecoration:"none"}}>Log Out</a></div></div>
     <div className="notice">Only <b>HR Admin</b> accounts can open this page. The employee HR records inside the current prototype are still stored in each browser's localStorage; Supabase Auth controls sign-in accounts.</div>
-    <section className="panel"><h2 style={{marginTop:0}}>Create User</h2><form onSubmit={createUser} className="form-grid">
+    <section className="panel"><h2 style={{marginTop:0}}>Add User — Login Account</h2><form onSubmit={createUser} className="form-grid">
       <div className="field"><label>Full Name</label><input value={form.full_name} onChange={e=>setForm({...form,full_name:e.target.value})} required /></div>
       <div className="field"><label>Email</label><input type="email" value={form.email} onChange={e=>setForm({...form,email:e.target.value})} required /></div>
       <div className="field"><label>Temporary Password</label><input type="password" minLength={8} value={form.password} onChange={e=>setForm({...form,password:e.target.value})} required /></div>
       <div className="field"><label>Role</label><select value={form.role} onChange={e=>setForm({...form,role:e.target.value})}>{roles.map(r=><option key={r}>{r}</option>)}</select></div>
       <div className="field"><label>Branch</label><select value={form.branch} onChange={e=>setForm({...form,branch:e.target.value})}>{branches.map(b=><option key={b}>{b}</option>)}</select></div>
       <div className="field"><label>Employee ID (optional)</label><input value={form.employee_id} onChange={e=>setForm({...form,employee_id:e.target.value})} placeholder="UC-0001" /></div>
-      <div className="full"><button className="primary-btn" type="submit">+ Create User Account</button></div>
+      <div className="full"><button className="primary-btn" type="submit">+ Add User Account</button></div>
     </form>{message&&<div className="notice" style={{marginTop:12}}>{message}</div>}</section>
     <section className="panel"><div style={{display:"flex",justifyContent:"space-between",gap:12,alignItems:"center",marginBottom:12}}><div><h2 style={{margin:0}}>User Accounts</h2><p style={{margin:"4px 0 0",color:"#756d63",fontSize:12}}>Role, branch and account status can be changed here.</p></div><button className="soft-btn" onClick={loadUsers}>Refresh</button></div>
       <div className="table-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Branch</th><th>Employee ID</th><th>Status</th><th>Actions</th></tr></thead><tbody>

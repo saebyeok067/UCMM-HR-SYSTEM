@@ -17,8 +17,19 @@ async function requireAdmin() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
-  const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).maybeSingle();
-  if (profile?.role !== "hr_admin") return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
+
+  // Verify the role server-side with the service-role client.
+  // This prevents client RLS policy quirks from hiding the HR Admin role.
+  const admin = adminClient();
+  const { data: profile } = await admin
+    .from("profiles")
+    .select("role,status")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (profile?.role !== "hr_admin" || profile?.status !== "Active") {
+    return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
+  }
   return { user };
 }
 
