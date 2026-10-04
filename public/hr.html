@@ -302,10 +302,87 @@ function exportEmployees(){csv('employees.csv',[['Name','ID','Branch','Departmen
 function viewEmployee(id){const e=empById(id);if(!e)return;qs('employeeViewTitle').textContent=e.name;qs('employeeViewSub').textContent=`${e.code} • ${e.branch} • ${e.dept}`;const at=state.attendance.filter(a=>a.employeeId===id).sort((a,b)=>b.date.localeCompare(a.date)),lv=state.leaves.filter(l=>l.employeeId===id),loans=state.loans.filter(l=>l.employeeId===id),comms=state.commissions.filter(c=>c.employeeId===id),records=state.hrRecords.filter(r=>r.employeeId===id),b=state.benefits[id]||{};const totalLate=at.reduce((s,a)=>s+lateMinutes(a.timeIn),0);qs('employeeViewContent').innerHTML=`<div class="detail-grid"><div class="detail-box"><span>Employee ID</span><b>${esc(e.code)}</b></div><div class="detail-box"><span>Hire Date</span><b>${e.hire||'-'}</b></div><div class="detail-box"><span>Status</span><b>${esc(e.type)}</b></div><div class="detail-box"><span>System State</span><b>${systemStatus(e.type)}</b></div><div class="detail-box"><span>Email</span><b>${esc(e.email||'-')}</b></div><div class="detail-box"><span>Contact</span><b>${esc(e.contact||'-')}</b></div><div class="detail-box"><span>Daily Rate</span><b>${peso(e.dailyRate)}</b></div><div class="detail-box"><span>Branch</span><b>${esc(e.branch)}</b></div></div><div class="section-head" style="margin-top:16px"><div><h3>Government Contributions / Deductions</h3></div></div><div class="detail-grid"><div class="detail-box"><span>SSS</span><b>${peso(b.sss)}</b></div><div class="detail-box"><span>PhilHealth</span><b>${peso(b.philhealth)}</b></div><div class="detail-box"><span>Pag-IBIG</span><b>${peso(b.pagibig)}</b></div><div class="detail-box"><span>Total Deductions</span><b>${peso(benefitTotal(id))}</b></div></div><div class="section-head" style="margin-top:16px"><div><h3>Attendance Summary</h3><p>Total late minutes and NOV warning.</p></div></div><div class="detail-grid"><div class="detail-box"><span>Attendance Records</span><b>${at.length}</b></div><div class="detail-box"><span>Total Minutes Late</span><b>${totalLate} min</b></div><div class="detail-box"><span>Total Late Deductions</span><b>${peso(at.reduce((s,a)=>s+lateDeduction(e.dailyRate,a.timeIn),0))}</b></div><div class="detail-box"><span>NOV Warning</span><b style="color:${totalLate?'var(--danger)':'var(--success)'}">${totalLate?'For NOV':'No Warning'}</b></div></div><div class="section-head" style="margin-top:16px"><div><h3>Leave Requests</h3></div></div>${lv.length?lv.map(l=>`<div class="rowbox"><div><b>${esc(l.type)}</b><small>${l.start} → ${l.end} • ${esc(l.reason)}</small></div><span class="pill">${l.status}</span></div>`).join(''):'<div class="empty">No leave requests.</div>'}<div class="section-head" style="margin-top:16px"><div><h3>Loan Deductions</h3></div><button class="btn sm" onclick="closeModal('employeeViewModal');openLoan('', '${id}')">+ Add Loan</button></div>${loans.length?loans.map(l=>`<div class="rowbox"><div><b>${esc(l.type)}</b><small>Balance ${peso(l.balance)} • ${peso(l.perCutoff)}/cutoff</small></div><span class="pill">${l.status}</span></div>`).join(''):'<div class="empty">No loans.</div>'}<div class="section-head" style="margin-top:16px"><div><h3>Commission Records</h3></div></div>${comms.length?comms.map(c=>`<div class="rowbox"><div><b>${esc(c.type)}</b><small>${periodLabel(c.period)} • ${esc(c.status)}</small></div><b>${peso(c.amount)}</b></div>`).join(''):'<div class="empty">No commission records.</div>'}<div class="section-head" style="margin-top:16px"><div><h3>Employee HR Records</h3><p>NTE/NOV, RD/OT, DISPUTE/IR, APPRAISAL/ASSESSMENT</p></div><button class="btn primary sm" onclick="openHRRecord('${id}')">Upload HR Record</button></div>${records.length?records.map(r=>`<div class="rowbox"><div><b>${esc(r.type)} — ${esc(r.title)}</b><small>${r.date} • ${esc(r.status)} • ${esc(r.fileName||'No attachment')}</small></div><button class="btn sm danger" onclick="deleteHRRecord('${r.id}')">Delete</button></div>`).join(''):'<div class="empty">No HR records yet.</div>'}`;openModal('employeeViewModal')}
 function openHRRecord(empId){qs('hrRecordEmployee').value=empId;qs('hrRecordDate').value=today();qs('hrRecordTitle').value='';qs('hrRecordDetails').value='';qs('hrRecordFile').value='';openModal('hrRecordModal')} function saveHRRecord(){const f=qs('hrRecordFile').files[0];state.hrRecords.push({id:uid(),employeeId:qs('hrRecordEmployee').value,type:qs('hrRecordType').value,date:qs('hrRecordDate').value,title:qs('hrRecordTitle').value||'Untitled',status:qs('hrRecordStatus').value,details:qs('hrRecordDetails').value,fileName:f?.name||''});addAudit('Employees','Uploaded employee HR record','Review');save();closeModal('hrRecordModal');viewEmployee(qs('hrRecordEmployee').value)} function deleteHRRecord(id){if(!confirmAction('Delete this HR record?'))return;state.hrRecords=state.hrRecords.filter(r=>r.id!==id);save();renderAll();toast('HR record deleted')}
 
+
+function dbAttendanceToUi(a){
+  return {
+    id:a.id,
+    employeeId:a.employee_id,
+    date:a.work_date,
+    timeIn:a.time_in?String(a.time_in).slice(0,5):'',
+    timeOut:a.time_out?String(a.time_out).slice(0,5):'',
+    status:a.status||'Auto',
+    note:a.note||'',
+    lateMinutes:Number(a.late_minutes||0),
+    lateDeduction:Number(a.late_deduction||0),
+    overtimeMinutes:Number(a.overtime_minutes||0)
+  };
+}
+
+async function loadAttendanceFromApi(showMessage=false){
+  try{
+    const res=await fetch('/api/attendance',{credentials:'same-origin',cache:'no-store'});
+    const data=await res.json().catch(()=>({}));
+    if(res.status===401){location.replace('/login?next=%2Fhr.html');return false}
+    if(!res.ok){
+      console.error('Attendance API:',data);
+      if(showMessage) toast(data.error||'Unable to load attendance');
+      return false;
+    }
+    state.attendance=(data.attendance||[]).map(dbAttendanceToUi);
+    save();
+    renderAll();
+    if(showMessage) toast('Attendance refreshed from Supabase');
+    return true;
+  }catch(err){
+    console.error(err);
+    if(showMessage) toast('Unable to connect to attendance database');
+    return false;
+  }
+}
+
 function renderAttendance(){const date=qs('attDateFilter').value||today(),branch=qs('attBranchFilter').value,status=qs('attStatusFilter').value;const emps=activeEmployees().filter(e=>branch==='All Branches'||e.branch===branch);const actual=state.attendance.filter(a=>a.date===date&&emps.some(e=>e.id===a.employeeId));let rows=[];emps.forEach(e=>{const a=actual.find(x=>x.employeeId===e.id);if(a)rows.push({...a,displayStatus:attStatus(a),employee:e});else rows.push({id:'missing-'+e.id,date,employeeId:e.id,timeIn:'',timeOut:'',note:'Attendance not yet recorded',displayStatus:'No Record',employee:e})});if(status)rows=rows.filter(r=>r.displayStatus===status);qs('attendanceRows').innerHTML=rows.map(r=>`<tr><td>${r.date}</td><td><button class="name-link" onclick="viewEmployee('${r.employeeId}')">${esc(r.employee.name)}</button></td><td>${esc(r.employee.branch)}</td><td>${r.timeIn||'-'}</td><td>${r.timeOut||'-'}</td><td><b style="color:${lateMinutes(r.timeIn)?'var(--danger)':'var(--success)'}">${lateMinutes(r.timeIn)} min</b></td><td><span class="pill ${r.displayStatus==='Present'?'success':r.displayStatus==='Absent'?'danger':r.displayStatus==='Late'?'warning':''}">${r.displayStatus}</span></td><td>${esc(r.note||'-')}</td><td><button class="btn sm" onclick="viewAttendance('${r.id}','${r.employeeId}','${r.date}')">View</button></td></tr>`).join('')||'<tr><td colspan="9" class="empty">No records.</td></tr>';const td=state.attendance.filter(a=>a.date===today());qs('attPresent').textContent=td.filter(a=>attStatus(a)==='Present').length;qs('attLate').textContent=td.filter(a=>attStatus(a)==='Late').length;qs('attAbsent').textContent=td.filter(a=>attStatus(a)==='Absent').length;qs('attLeave').textContent=td.filter(a=>attStatus(a)==='On Leave').length}
 ['attDateFilter','attBranchFilter','attStatusFilter'].forEach(id=>qs(id).addEventListener('change',renderAttendance));
 function openAttendance(empId=''){qs('attEmployee').value=empId||activeEmployees()[0]?.id||'';qs('attDate').value=qs('attDateFilter').value||today();qs('attStatus').value='Auto';qs('attIn').value=state.settings.start;qs('attOut').value=state.settings.end;qs('attNote').value='';openModal('attendanceModal')}
-qs('attendanceForm').onsubmit=e=>{e.preventDefault();const emp=qs('attEmployee').value,date=qs('attDate').value;state.attendance=state.attendance.filter(a=>!(a.employeeId===emp&&a.date===date));state.attendance.push({id:uid(),employeeId:emp,date,status:qs('attStatus').value,timeIn:qs('attStatus').value==='Absent'||qs('attStatus').value==='On Leave'?'':qs('attIn').value,timeOut:qs('attStatus').value==='Absent'||qs('attStatus').value==='On Leave'?'':qs('attOut').value,note:qs('attNote').value});addAudit('Attendance',`Recorded attendance for ${empName(emp)} on ${date}`);save();closeModal('attendanceModal');renderAll()};
+qs('attendanceForm').onsubmit=async e=>{
+  e.preventDefault();
+  const button=e.submitter||qs('attendanceForm').querySelector('button[type="submit"]');
+  const emp=qs('attEmployee').value;
+  const date=qs('attDate').value;
+  const status=qs('attStatus').value;
+  const isNoTime=['Absent','On Leave'].includes(status);
+  const payload={
+    employee_id:emp,
+    work_date:date,
+    status,
+    time_in:isNoTime?null:(qs('attIn').value||null),
+    time_out:isNoTime?null:(qs('attOut').value||null),
+    note:qs('attNote').value.trim()||null,
+    shift_start:state.settings.start||'08:00',
+    shift_end:state.settings.end||'17:00',
+    grace_minutes:Number(state.settings.grace||10)
+  };
+  try{
+    if(!emp){toast('Please select an employee.');return}
+    if(!date){toast('Please select an attendance date.');return}
+    if(button){button.disabled=true;button.textContent='Saving...'}
+    const res=await fetch('/api/attendance',{
+      method:'POST',
+      credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(payload)
+    });
+    const data=await res.json().catch(()=>({}));
+    if(!res.ok) throw new Error(data.error||'Unable to save attendance');
+    closeModal('attendanceModal');
+    await loadAttendanceFromApi();
+    toast(data.message||'Attendance saved to Supabase');
+  }catch(err){
+    console.error(err);
+    toast(err.message||'Unable to save attendance');
+  }finally{
+    if(button){button.disabled=false;button.textContent='Save Attendance'}
+  }
+};
 function viewAttendance(id,empId,date){const a=state.attendance.find(x=>x.id===id),e=empById(empId);const missing=!a;const st=missing?'No Record':attStatus(a);qs('attendanceViewContent').innerHTML=`<div class="detail-grid"><div class="detail-box"><span>Employee</span><b>${esc(e?.name)}</b></div><div class="detail-box"><span>Date</span><b>${date}</b></div><div class="detail-box"><span>Time In</span><b>${a?.timeIn||'-'}</b></div><div class="detail-box"><span>Time Out</span><b>${a?.timeOut||'-'}</b></div><div class="detail-box"><span>Late Minutes</span><b>${lateMinutes(a?.timeIn)} min</b></div><div class="detail-box"><span>Status</span><b>${st}</b></div></div>${missing?`<div class="dialog-actions"><button class="btn primary" onclick="closeModal('attendanceViewModal');openAttendance('${empId}')">Record Attendance</button></div>`:''}`;openModal('attendanceViewModal')}
 function exportAttendance(){csv('attendance.csv',[['Date','Employee','Branch','Time In','Time Out','Late Minutes','Status'],...state.attendance.map(a=>[a.date,empName(a.employeeId),empById(a.employeeId)?.branch,a.timeIn,a.timeOut,lateMinutes(a.timeIn),attStatus(a)])])}
 
@@ -344,7 +421,7 @@ function auditSeverity(a){const s=a.action.toLowerCase();return /delete|archive|
 function viewBranchEmployees(branch){qs('empSearch').value=branch;gotoPage('employees');renderEmployees();toast(`Showing employees in ${branch}`)} function renderSettings(){const s=state.settings;qs('settingsRows').innerHTML=`<div class="settings-row"><div><b>Company Name</b><small>Used throughout the HR system.</small></div><input id="setCompany" value="${esc(s.company)}"></div><div class="settings-row"><div><b>Work Start</b><small>Default start time for attendance and schedules.</small></div><input id="setStart" type="time" value="${s.start}"></div><div class="settings-row"><div><b>Work End</b><small>Default work end time.</small></div><input id="setEnd" type="time" value="${s.end}"></div><div class="settings-row"><div><b>Late Grace Period</b><small>Minutes after work start before employee is late.</small></div><input id="setGrace" type="number" value="${s.grace}"></div><div class="settings-row"><div><b>Payroll Days Basis</b><small>Reference monthly payroll days.</small></div><input id="setBasis" type="number" value="${s.payBasis}"></div><div class="settings-row"><div><b>Document Expiry Alert</b><small>Days before expiry to flag a document.</small></div><input id="setDocAlert" type="number" value="${s.docAlertDays}"></div>`;qs('branchSettings').innerHTML=BRANCHES.map(b=>{const e=state.employees.filter(x=>!x.archived&&x.branch===b);return `<div class="rowbox"><div><b>${esc(b)}</b><small>Active ${e.filter(x=>['Regular','Probationary'].includes(x.type)).length} • Regular ${e.filter(x=>x.type==='Regular').length} • Probationary ${e.filter(x=>x.type==='Probationary').length}</small></div><button class="btn sm" onclick="viewBranchEmployees('${b}')">View Employees</button></div>`}).join('')} function saveSettings(){state.settings.company=qs('setCompany').value;state.settings.start=qs('setStart').value;state.settings.end=qs('setEnd').value;state.settings.grace=Number(qs('setGrace').value||10);state.settings.payBasis=Number(qs('setBasis').value||26);state.settings.docAlertDays=Number(qs('setDocAlert').value||30);addAudit('Settings','Updated HR system settings','Review');save();renderAll();toast('Settings saved')} function downloadBackup(){download('underchargers-hr-backup.json',JSON.stringify(state,null,2),'application/json')}
 
 function renderAll(){populateOptions();renderDashboard();renderEmployees();renderAttendance();renderLeave();renderPayroll();renderBenefits();renderSchedules();renderDocuments();renderAnnouncements();renderReports();renderAudit();renderSettings()}
-qs('attDateFilter').value=today();qs('scheduleWeek').value=weekStart(today());populateOptions();qs('payPeriod').value=periodValue(PERIODS[1]);qs('reportPeriod').value=periodValue(PERIODS[1]);renderAll();loadEmployeesFromApi();
+qs('attDateFilter').value=today();qs('scheduleWeek').value=weekStart(today());populateOptions();qs('payPeriod').value=periodValue(PERIODS[1]);qs('reportPeriod').value=periodValue(PERIODS[1]);renderAll();loadEmployeesFromApi().then(()=>loadAttendanceFromApi());
 document.querySelectorAll('.modal').forEach(m=>m.addEventListener('click',e=>{if(e.target===m)m.classList.remove('show')}));
 </script>
 
