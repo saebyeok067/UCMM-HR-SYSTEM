@@ -136,13 +136,167 @@ function populateOptions(){const empOpts=activeEmployees().map(e=>`<option value
 function renderDashboard(){const active=activeEmployees(),td=state.attendance.filter(a=>a.date===today()),present=td.filter(a=>['Present','Late'].includes(attStatus(a))).length,onleave=state.leaves.filter(l=>l.status==='Approved'&&l.start<=today()&&l.end>=today()).length,pending=state.leaves.filter(l=>l.status==='Pending').length;qs('dashKpis').innerHTML=[[active.length,'Active Employees','All company records'],[present,'Present Today','Present + late'],[onleave,'On Leave','Approved current leave'],[pending,'Pending Approvals','Leave requests']].map(x=>`<div class="card"><div class="kpi-label">${x[1]}</div><div class="kpi">${x[0]}</div><div class="kpi-note">${x[2]}</div></div>`).join('');const missing=active.filter(e=>!td.some(a=>a.employeeId===e.id)).length,exp=state.documents.filter(d=>docStatus(d)==='Expiring Soon').length,period=qs('payPeriod')?.value||periodValue(PERIODS[1]),unpaid=state.payroll.filter(p=>p.period===period&&p.status==='Unpaid').length,loans=state.loans.filter(l=>l.status==='Active'&&Number(l.balance)>0).length;qs('actionCenter').innerHTML=[[missing,'Missing Attendance','attendance'],[exp,'Expiring Documents','documents'],[unpaid,'Unpaid Payroll','payroll'],[loans,'Active Loans','benefits']].map(x=>`<button class="card" style="text-align:left;cursor:pointer" onclick="gotoPage('${x[2]}')"><div class="kpi">${x[0]}</div><div class="kpi-label">${x[1]}</div></button>`).join('');qs('dashAttendance').innerHTML=['Present','Late','Absent','On Leave'].map(s=>{const n=td.filter(a=>attStatus(a)===s).length;return `<div class="rowbox"><div><b>${s}</b><small>${n} employee record(s)</small></div><span class="pill ${s==='Present'?'success':s==='Absent'?'danger':s==='Late'?'warning':''}">${n}</span></div>`}).join('');const pend=state.leaves.filter(l=>l.status==='Pending').slice(0,4);qs('dashApprovals').innerHTML=pend.length?pend.map(l=>`<div class="rowbox"><div><b>${esc(empName(l.employeeId))}</b><small>${esc(l.type)} • ${l.days} day(s)</small></div><button class="btn sm success" onclick="setLeaveStatus('${l.id}','Approved')">Approve</button></div>`).join(''):'<div class="empty">No pending leave requests.</div>';qs('dashAudit').innerHTML=state.audit.slice(0,5).map(a=>`<div class="rowbox"><div><b>${esc(a.action)}</b><small>${esc(a.module)} • ${esc(a.time)}</small></div><span class="pill">${esc(a.user)}</span></div>`).join('')||'<div class="empty">No audit events yet.</div>';qs('notifCount').textContent=missing+pending+exp+unpaid}
 function exportDashboard(){csv('hr-dashboard.csv',[['Metric','Value'],['Active Employees',activeEmployees().length],['Pending Leave',state.leaves.filter(l=>l.status==='Pending').length],['Active Loans',state.loans.filter(l=>l.status==='Active').length]])}
 
-function renderEmployees(){const q=qs('empSearch').value.toLowerCase(),df=qs('empDeptFilter').value,sf=qs('empStatusFilter').value;const rows=state.employees.filter(e=>!e.archived&&(!q||`${e.name} ${e.code} ${e.role} ${e.email} ${e.branch} ${e.dept}`.toLowerCase().includes(q))&&(!df||e.dept===df)&&(!sf||e.type===sf));qs('employeeRows').innerHTML=rows.map(e=>`<tr><td><button class="name-link" onclick="viewEmployee('${e.id}')">${esc(e.name)}</button><div style="color:var(--muted);font-size:8.5px">Hired ${e.hire||'-'}</div></td><td>${esc(e.code)}</td><td><span class="pill">${esc(e.branch)}</span></td><td><b>${esc(e.dept)}</b><br><span style="color:var(--muted)">${esc(e.role)}</span></td><td>${peso(e.dailyRate)}</td><td>${esc(e.email||'-')}</td><td><span class="pill ${['Regular'].includes(e.type)?'success':e.type==='Probationary'?'warning':'danger'}">${esc(e.type)}</span></td><td><div class="toolbar" style="margin:0"><button class="btn sm" onclick="viewEmployee('${e.id}')">View</button><button class="btn sm" onclick="openEmployee('${e.id}')">Edit</button><button class="btn sm danger" onclick="archiveEmployee('${e.id}')">Archive</button></div></td></tr>`).join('')||'<tr><td colspan="8" class="empty">No employees found.</td></tr>'}
+function dbEmployeeToUi(row){
+  const statusMap={
+    'On Leave':'Indefinite Leave',
+    'Resigned':'Resign',
+    'Terminated':'Terminated',
+    'Inactive':'AWOL',
+    'Archived':'Archived'
+  };
+  const activeType=['Regular','Probationary','Contractual','Part-Time','Intern','Other'].includes(row.employment_type)?row.employment_type:'Regular';
+  const uiType=row.employment_status==='Active'?activeType:(statusMap[row.employment_status]||activeType);
+  return {
+    id:row.id,
+    code:row.employee_no||'',
+    name:[row.first_name,row.middle_name,row.last_name].filter(Boolean).join(' ').replace(/\s+/g,' ').trim(),
+    email:row.email||'',
+    contact:row.phone||'',
+    branch:row.branch||'',
+    dept:row.department||'',
+    role:row.position||'',
+    type:uiType,
+    employmentType:row.employment_type||'Regular',
+    employmentStatus:row.employment_status||'Active',
+    dailyRate:Number(row.daily_rate||0),
+    monthlySalary:Number(row.monthly_salary||0),
+    hire:row.hire_date||'',
+    archived:row.employment_status==='Archived',
+    archivedAt:row.archived_at?String(row.archived_at).slice(0,10):'',
+    rehireHistory:[]
+  };
+}
+
+function splitEmployeeName(fullName){
+  const parts=String(fullName||'').trim().split(/\s+/).filter(Boolean);
+  if(parts.length<2) return null;
+  return {
+    first_name:parts[0],
+    middle_name:parts.length>2?parts.slice(1,-1).join(' '):'',
+    last_name:parts[parts.length-1]
+  };
+}
+
+function employeeStatusForApi(uiStatus,old){
+  if(uiStatus==='Terminated') return {employment_type:old?.employmentType||'Regular',employment_status:'Terminated'};
+  if(uiStatus==='Resign') return {employment_type:old?.employmentType||'Regular',employment_status:'Resigned'};
+  if(uiStatus==='Indefinite Leave') return {employment_type:old?.employmentType||'Regular',employment_status:'On Leave'};
+  if(uiStatus==='AWOL') return {employment_type:old?.employmentType||'Regular',employment_status:'Inactive'};
+  return {employment_type:uiStatus||'Regular',employment_status:'Active'};
+}
+
+async function loadEmployeesFromApi(showMessage=false){
+  try{
+    const res=await fetch('/api/employees',{credentials:'same-origin',cache:'no-store'});
+    const data=await res.json().catch(()=>({}));
+    if(res.status===401){location.replace('/login?next=%2Fhr.html');return false}
+    if(!res.ok){
+      console.error('Employee API:',data);
+      if(res.status===403){state.employees=[];save();renderAll();return false}
+      if(showMessage) toast(data.error||'Unable to load employees');
+      return false;
+    }
+    state.employees=(data.employees||[]).map(dbEmployeeToUi);
+    state.employees.forEach(e=>{
+      if(!state.benefits[e.id]) state.benefits[e.id]={sss:0,philhealth:0,pagibig:0,other:0};
+    });
+    save();
+    renderAll();
+    if(showMessage) toast('Employees refreshed from Supabase');
+    return true;
+  }catch(err){
+    console.error(err);
+    if(showMessage) toast('Unable to connect to employee database');
+    return false;
+  }
+}
+
+function renderEmployees(){const q=qs('empSearch').value.toLowerCase(),df=qs('empDeptFilter').value,sf=qs('empStatusFilter').value;const rows=state.employees.filter(e=>!e.archived&&(!q||`${e.name} ${e.code} ${e.role} ${e.email} ${e.branch} ${e.dept}`.toLowerCase().includes(q))&&(!df||e.dept===df)&&(!sf||e.type===sf));qs('employeeRows').innerHTML=rows.map(e=>`<tr><td><button class="name-link" onclick="viewEmployee('${e.id}')">${esc(e.name)}</button><div style="color:var(--muted);font-size:8.5px">Hired ${e.hire||'-'}</div></td><td>${esc(e.code)}</td><td><span class="pill">${esc(e.branch)}</span></td><td><b>${esc(e.dept)}</b><br><span style="color:var(--muted)">${esc(e.role)}</span></td><td>${peso(e.dailyRate)}</td><td>${esc(e.email||'-')}</td><td><span class="pill ${['Regular'].includes(e.type)?'success':e.type==='Probationary'?'warning':'danger'}">${esc(e.type)}</span></td><td><div class="toolbar" style="margin:0"><button class="btn sm" onclick="viewEmployee('${e.id}')">View</button><button class="btn sm" onclick="openEmployee('${e.id}')">Edit</button><button class="btn sm danger" onclick="archiveEmployee('${e.id}')">Archive</button></div></td></tr>`).join('')||'<tr><td colspan="8" class="empty">No employees found in Supabase yet.</td></tr>'}
 ['empSearch','empDeptFilter','empStatusFilter'].forEach(id=>qs(id).addEventListener('input',renderEmployees));
-function openEmployee(id=''){const e=id?empById(id):null;qs('employeeModalTitle').textContent=e?'Edit Employee':'Add Employee';qs('empId').value=e?.id||'';qs('empName').value=e?.name||'';qs('empCode').value=e?.code||`UC-${String(state.employees.length+1).padStart(4,'0')}`;qs('empEmail').value=e?.email||'';qs('empContact').value=e?.contact||'';qs('empBranch').value=e?.branch||BRANCHES[0];qs('empDept').value=e?.dept||'';qs('empRole').value=e?.role||'';qs('empStatus').value=e?.type||'Probationary';qs('empRate').value=e?.dailyRate||'';qs('empHire').value=e?.hire||today();const b=state.benefits[e?.id]||{sss:250,philhealth:250,pagibig:100,other:0};qs('empSSS').value=b.sss;qs('empPhil').value=b.philhealth;qs('empPagibig').value=b.pagibig;openModal('employeeModal')}
-qs('employeeForm').onsubmit=e=>{e.preventDefault();const id=qs('empId').value||uid(),old=empById(id);const obj={id,code:qs('empCode').value.trim(),name:qs('empName').value.trim(),email:qs('empEmail').value.trim(),contact:qs('empContact').value.trim(),branch:qs('empBranch').value,dept:qs('empDept').value.trim(),role:qs('empRole').value.trim(),type:qs('empStatus').value,dailyRate:Number(qs('empRate').value||0),hire:qs('empHire').value,archived:old?.archived||false,archivedAt:old?.archivedAt||'',rehireHistory:old?.rehireHistory||[]};if(old)state.employees=state.employees.map(x=>x.id===id?obj:x);else state.employees.push(obj);state.benefits[id]={...(state.benefits[id]||{other:0}),sss:Number(qs('empSSS').value||0),philhealth:Number(qs('empPhil').value||0),pagibig:Number(qs('empPagibig').value||0)};addAudit('Employees',`${old?'Updated':'Added'} employee ${obj.name}`);save();closeModal('employeeModal');renderAll();toast('Employee saved')};
-function archiveEmployee(id){const e=empById(id);if(!e)return;if(!['Resign','Terminated','AWOL'].includes(e.type)){toast('Set employee status to Resign, Terminated or AWOL before archiving.');return}if(!confirmAction(`Archive ${e.name}?`))return;e.archived=true;e.archivedAt=today();addAudit('Employees',`Archived ${e.name}`,'Review');save();renderAll()}
-function openArchived(){const rows=state.employees.filter(e=>e.archived);qs('archivedList').innerHTML=rows.length?rows.map(e=>`<div class="rowbox"><div><b>${esc(e.name)}</b><small>${esc(e.code)} • ${esc(e.type)} • Archived ${e.archivedAt}</small></div><div><button class="btn sm" onclick="viewEmployee('${e.id}')">View</button> <button class="btn sm success" onclick="rehireEmployee('${e.id}')">Rehire</button></div></div>`).join(''):'<div class="empty">No archived employees.</div>';openModal('archivedModal')}
-function rehireEmployee(id){const e=empById(id);if(!e)return;const date=prompt('Rehire date (YYYY-MM-DD):',today());if(!date)return;e.rehireHistory=e.rehireHistory||[];e.rehireHistory.push({date,previousStatus:e.type});e.archived=false;e.archivedAt='';e.type='Probationary';e.hire=date;addAudit('Employees',`Rehired ${e.name}`,'Review');save();closeModal('archivedModal');renderAll();toast('Employee rehired')}
+function openEmployee(id=''){const e=id?empById(id):null;qs('employeeModalTitle').textContent=e?'Edit Employee':'Add Employee';qs('empId').value=e?.id||'';qs('empName').value=e?.name||'';qs('empCode').value=e?.code||'';qs('empCode').placeholder='Auto-generated if blank';qs('empEmail').value=e?.email||'';qs('empContact').value=e?.contact||'';qs('empBranch').value=e?.branch||BRANCHES[0];qs('empDept').value=e?.dept||'';qs('empRole').value=e?.role||'';qs('empStatus').value=e?.type||'Probationary';qs('empRate').value=e?.dailyRate||'';qs('empHire').value=e?.hire||today();const b=state.benefits[e?.id]||{sss:0,philhealth:0,pagibig:0,other:0};qs('empSSS').value=b.sss||0;qs('empPhil').value=b.philhealth||0;qs('empPagibig').value=b.pagibig||0;openModal('employeeModal')}
+
+qs('employeeForm').onsubmit=async e=>{
+  e.preventDefault();
+  const button=e.submitter||qs('employeeForm').querySelector('button[type="submit"]');
+  const id=qs('empId').value;
+  const old=id?empById(id):null;
+  const name=splitEmployeeName(qs('empName').value);
+  if(!name){toast('Please enter both first name and last name.');return}
+  const mapped=employeeStatusForApi(qs('empStatus').value,old);
+  const payload={
+    employee_no:qs('empCode').value.trim()||undefined,
+    ...name,
+    email:qs('empEmail').value.trim(),
+    phone:qs('empContact').value.trim(),
+    branch:qs('empBranch').value,
+    department:qs('empDept').value.trim(),
+    position:qs('empRole').value.trim(),
+    employment_type:mapped.employment_type,
+    employment_status:mapped.employment_status,
+    daily_rate:Number(qs('empRate').value||0),
+    hire_date:qs('empHire').value||null
+  };
+  try{
+    if(button){button.disabled=true;button.textContent='Saving...'}
+    const res=await fetch(id?`/api/employees/${encodeURIComponent(id)}`:'/api/employees',{
+      method:id?'PATCH':'POST',
+      credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(payload)
+    });
+    const data=await res.json().catch(()=>({}));
+    if(!res.ok) throw new Error(data.error||'Unable to save employee');
+    const saved=data.employee;
+    if(saved?.id){
+      state.benefits[saved.id]={
+        ...(state.benefits[saved.id]||{other:0}),
+        sss:Number(qs('empSSS').value||0),
+        philhealth:Number(qs('empPhil').value||0),
+        pagibig:Number(qs('empPagibig').value||0)
+      };
+      save();
+    }
+    closeModal('employeeModal');
+    await loadEmployeesFromApi();
+    toast(id?'Employee updated in Supabase':'Employee added to Supabase');
+  }catch(err){
+    console.error(err);
+    toast(err.message||'Unable to save employee');
+  }finally{
+    if(button){button.disabled=false;button.textContent='Save Employee'}
+  }
+};
+
+async function archiveEmployee(id){
+  const e=empById(id);if(!e)return;
+  if(!['Resign','Terminated','AWOL'].includes(e.type)){toast('Set employee status to Resign, Terminated or AWOL before archiving.');return}
+  if(!confirmAction(`Archive ${e.name}? The HR record will be retained.`))return;
+  try{
+    const res=await fetch(`/api/employees/${encodeURIComponent(id)}`,{method:'DELETE',credentials:'same-origin'});
+    const data=await res.json().catch(()=>({}));
+    if(!res.ok) throw new Error(data.error||'Unable to archive employee');
+    await loadEmployeesFromApi();
+    toast('Employee archived in Supabase');
+  }catch(err){console.error(err);toast(err.message||'Unable to archive employee')}
+}
+
+function openArchived(){const rows=state.employees.filter(e=>e.archived);qs('archivedList').innerHTML=rows.length?rows.map(e=>`<div class="rowbox"><div><b>${esc(e.name)}</b><small>${esc(e.code)} • ${esc(e.type)} • Archived ${e.archivedAt||'-'}</small></div><div><button class="btn sm" onclick="viewEmployee('${e.id}')">View</button> <button class="btn sm success" onclick="rehireEmployee('${e.id}')">Rehire</button></div></div>`).join(''):'<div class="empty">No archived employees.</div>';openModal('archivedModal')}
+
+async function rehireEmployee(id){
+  const e=empById(id);if(!e)return;
+  const date=prompt('Rehire date (YYYY-MM-DD):',today());if(!date)return;
+  try{
+    const res=await fetch(`/api/employees/${encodeURIComponent(id)}`,{
+      method:'PATCH',credentials:'same-origin',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({employment_status:'Active',employment_type:'Probationary',hire_date:date})
+    });
+    const data=await res.json().catch(()=>({}));
+    if(!res.ok) throw new Error(data.error||'Unable to rehire employee');
+    closeModal('archivedModal');
+    await loadEmployeesFromApi();
+    toast('Employee rehired');
+  }catch(err){console.error(err);toast(err.message||'Unable to rehire employee')}
+}
 function exportEmployees(){csv('employees.csv',[['Name','ID','Branch','Department','Role','Status','Daily Rate','Email'],...state.employees.filter(e=>!e.archived).map(e=>[e.name,e.code,e.branch,e.dept,e.role,e.type,e.dailyRate,e.email])])}
 
 function viewEmployee(id){const e=empById(id);if(!e)return;qs('employeeViewTitle').textContent=e.name;qs('employeeViewSub').textContent=`${e.code} • ${e.branch} • ${e.dept}`;const at=state.attendance.filter(a=>a.employeeId===id).sort((a,b)=>b.date.localeCompare(a.date)),lv=state.leaves.filter(l=>l.employeeId===id),loans=state.loans.filter(l=>l.employeeId===id),comms=state.commissions.filter(c=>c.employeeId===id),records=state.hrRecords.filter(r=>r.employeeId===id),b=state.benefits[id]||{};const totalLate=at.reduce((s,a)=>s+lateMinutes(a.timeIn),0);qs('employeeViewContent').innerHTML=`<div class="detail-grid"><div class="detail-box"><span>Employee ID</span><b>${esc(e.code)}</b></div><div class="detail-box"><span>Hire Date</span><b>${e.hire||'-'}</b></div><div class="detail-box"><span>Status</span><b>${esc(e.type)}</b></div><div class="detail-box"><span>System State</span><b>${systemStatus(e.type)}</b></div><div class="detail-box"><span>Email</span><b>${esc(e.email||'-')}</b></div><div class="detail-box"><span>Contact</span><b>${esc(e.contact||'-')}</b></div><div class="detail-box"><span>Daily Rate</span><b>${peso(e.dailyRate)}</b></div><div class="detail-box"><span>Branch</span><b>${esc(e.branch)}</b></div></div><div class="section-head" style="margin-top:16px"><div><h3>Government Contributions / Deductions</h3></div></div><div class="detail-grid"><div class="detail-box"><span>SSS</span><b>${peso(b.sss)}</b></div><div class="detail-box"><span>PhilHealth</span><b>${peso(b.philhealth)}</b></div><div class="detail-box"><span>Pag-IBIG</span><b>${peso(b.pagibig)}</b></div><div class="detail-box"><span>Total Deductions</span><b>${peso(benefitTotal(id))}</b></div></div><div class="section-head" style="margin-top:16px"><div><h3>Attendance Summary</h3><p>Total late minutes and NOV warning.</p></div></div><div class="detail-grid"><div class="detail-box"><span>Attendance Records</span><b>${at.length}</b></div><div class="detail-box"><span>Total Minutes Late</span><b>${totalLate} min</b></div><div class="detail-box"><span>Total Late Deductions</span><b>${peso(at.reduce((s,a)=>s+lateDeduction(e.dailyRate,a.timeIn),0))}</b></div><div class="detail-box"><span>NOV Warning</span><b style="color:${totalLate?'var(--danger)':'var(--success)'}">${totalLate?'For NOV':'No Warning'}</b></div></div><div class="section-head" style="margin-top:16px"><div><h3>Leave Requests</h3></div></div>${lv.length?lv.map(l=>`<div class="rowbox"><div><b>${esc(l.type)}</b><small>${l.start} → ${l.end} • ${esc(l.reason)}</small></div><span class="pill">${l.status}</span></div>`).join(''):'<div class="empty">No leave requests.</div>'}<div class="section-head" style="margin-top:16px"><div><h3>Loan Deductions</h3></div><button class="btn sm" onclick="closeModal('employeeViewModal');openLoan('', '${id}')">+ Add Loan</button></div>${loans.length?loans.map(l=>`<div class="rowbox"><div><b>${esc(l.type)}</b><small>Balance ${peso(l.balance)} • ${peso(l.perCutoff)}/cutoff</small></div><span class="pill">${l.status}</span></div>`).join(''):'<div class="empty">No loans.</div>'}<div class="section-head" style="margin-top:16px"><div><h3>Commission Records</h3></div></div>${comms.length?comms.map(c=>`<div class="rowbox"><div><b>${esc(c.type)}</b><small>${periodLabel(c.period)} • ${esc(c.status)}</small></div><b>${peso(c.amount)}</b></div>`).join(''):'<div class="empty">No commission records.</div>'}<div class="section-head" style="margin-top:16px"><div><h3>Employee HR Records</h3><p>NTE/NOV, RD/OT, DISPUTE/IR, APPRAISAL/ASSESSMENT</p></div><button class="btn primary sm" onclick="openHRRecord('${id}')">Upload HR Record</button></div>${records.length?records.map(r=>`<div class="rowbox"><div><b>${esc(r.type)} — ${esc(r.title)}</b><small>${r.date} • ${esc(r.status)} • ${esc(r.fileName||'No attachment')}</small></div><button class="btn sm danger" onclick="deleteHRRecord('${r.id}')">Delete</button></div>`).join(''):'<div class="empty">No HR records yet.</div>'}`;openModal('employeeViewModal')}
@@ -190,7 +344,7 @@ function auditSeverity(a){const s=a.action.toLowerCase();return /delete|archive|
 function viewBranchEmployees(branch){qs('empSearch').value=branch;gotoPage('employees');renderEmployees();toast(`Showing employees in ${branch}`)} function renderSettings(){const s=state.settings;qs('settingsRows').innerHTML=`<div class="settings-row"><div><b>Company Name</b><small>Used throughout the HR system.</small></div><input id="setCompany" value="${esc(s.company)}"></div><div class="settings-row"><div><b>Work Start</b><small>Default start time for attendance and schedules.</small></div><input id="setStart" type="time" value="${s.start}"></div><div class="settings-row"><div><b>Work End</b><small>Default work end time.</small></div><input id="setEnd" type="time" value="${s.end}"></div><div class="settings-row"><div><b>Late Grace Period</b><small>Minutes after work start before employee is late.</small></div><input id="setGrace" type="number" value="${s.grace}"></div><div class="settings-row"><div><b>Payroll Days Basis</b><small>Reference monthly payroll days.</small></div><input id="setBasis" type="number" value="${s.payBasis}"></div><div class="settings-row"><div><b>Document Expiry Alert</b><small>Days before expiry to flag a document.</small></div><input id="setDocAlert" type="number" value="${s.docAlertDays}"></div>`;qs('branchSettings').innerHTML=BRANCHES.map(b=>{const e=state.employees.filter(x=>!x.archived&&x.branch===b);return `<div class="rowbox"><div><b>${esc(b)}</b><small>Active ${e.filter(x=>['Regular','Probationary'].includes(x.type)).length} • Regular ${e.filter(x=>x.type==='Regular').length} • Probationary ${e.filter(x=>x.type==='Probationary').length}</small></div><button class="btn sm" onclick="viewBranchEmployees('${b}')">View Employees</button></div>`}).join('')} function saveSettings(){state.settings.company=qs('setCompany').value;state.settings.start=qs('setStart').value;state.settings.end=qs('setEnd').value;state.settings.grace=Number(qs('setGrace').value||10);state.settings.payBasis=Number(qs('setBasis').value||26);state.settings.docAlertDays=Number(qs('setDocAlert').value||30);addAudit('Settings','Updated HR system settings','Review');save();renderAll();toast('Settings saved')} function downloadBackup(){download('underchargers-hr-backup.json',JSON.stringify(state,null,2),'application/json')}
 
 function renderAll(){populateOptions();renderDashboard();renderEmployees();renderAttendance();renderLeave();renderPayroll();renderBenefits();renderSchedules();renderDocuments();renderAnnouncements();renderReports();renderAudit();renderSettings()}
-qs('attDateFilter').value=today();qs('scheduleWeek').value=weekStart(today());populateOptions();qs('payPeriod').value=periodValue(PERIODS[1]);qs('reportPeriod').value=periodValue(PERIODS[1]);renderAll();
+qs('attDateFilter').value=today();qs('scheduleWeek').value=weekStart(today());populateOptions();qs('payPeriod').value=periodValue(PERIODS[1]);qs('reportPeriod').value=periodValue(PERIODS[1]);renderAll();loadEmployeesFromApi();
 document.querySelectorAll('.modal').forEach(m=>m.addEventListener('click',e=>{if(e.target===m)m.classList.remove('show')}));
 </script>
 
