@@ -386,9 +386,126 @@ qs('attendanceForm').onsubmit=async e=>{
 function viewAttendance(id,empId,date){const a=state.attendance.find(x=>x.id===id),e=empById(empId);const missing=!a;const st=missing?'No Record':attStatus(a);qs('attendanceViewContent').innerHTML=`<div class="detail-grid"><div class="detail-box"><span>Employee</span><b>${esc(e?.name)}</b></div><div class="detail-box"><span>Date</span><b>${date}</b></div><div class="detail-box"><span>Time In</span><b>${a?.timeIn||'-'}</b></div><div class="detail-box"><span>Time Out</span><b>${a?.timeOut||'-'}</b></div><div class="detail-box"><span>Late Minutes</span><b>${lateMinutes(a?.timeIn)} min</b></div><div class="detail-box"><span>Status</span><b>${st}</b></div></div>${missing?`<div class="dialog-actions"><button class="btn primary" onclick="closeModal('attendanceViewModal');openAttendance('${empId}')">Record Attendance</button></div>`:''}`;openModal('attendanceViewModal')}
 function exportAttendance(){csv('attendance.csv',[['Date','Employee','Branch','Time In','Time Out','Late Minutes','Status'],...state.attendance.map(a=>[a.date,empName(a.employeeId),empById(a.employeeId)?.branch,a.timeIn,a.timeOut,lateMinutes(a.timeIn),attStatus(a)])])}
 
-function renderLeave(){const q=qs('leaveSearch').value.toLowerCase(),sf=qs('leaveStatusFilter').value;const rows=state.leaves.filter(l=>(!q||`${empName(l.employeeId)} ${l.type}`.toLowerCase().includes(q))&&(!sf||l.status===sf));qs('leaveRows').innerHTML=rows.map(l=>`<tr><td><button class="name-link" onclick="viewEmployee('${l.employeeId}')">${esc(empName(l.employeeId))}</button></td><td>${esc(empById(l.employeeId)?.branch||'-')}</td><td>${esc(l.type)}</td><td>${l.start} → ${l.end}</td><td>${l.days}</td><td>${esc(l.reason)}</td><td><span class="pill ${l.status==='Approved'?'success':l.status==='Rejected'?'danger':'warning'}">${l.status}</span></td><td>${l.status==='Pending'?`<button class="btn sm success" onclick="setLeaveStatus('${l.id}','Approved')">Approve</button> <button class="btn sm danger" onclick="setLeaveStatus('${l.id}','Rejected')">Reject</button>`:`<button class="btn sm" onclick="setLeaveStatus('${l.id}','Pending')">Reopen</button>`}</td></tr>`).join('')||'<tr><td colspan="8" class="empty">No leave requests.</td></tr>';qs('leavePending').textContent=state.leaves.filter(l=>l.status==='Pending').length;qs('leaveApproved').textContent=state.leaves.filter(l=>l.status==='Approved').length;qs('leaveRejected').textContent=state.leaves.filter(l=>l.status==='Rejected').length;qs('leaveTotal').textContent=state.leaves.length}
+function dbLeaveToUi(l){
+  return {
+    id:l.id,
+    employeeId:l.employee_id,
+    type:l.leave_type||'Other',
+    start:l.start_date||'',
+    end:l.end_date||'',
+    days:Number(l.days||0),
+    reason:l.reason||'',
+    status:l.status||'Pending',
+    reviewNote:l.review_note||'',
+    reviewedAt:l.reviewed_at||null
+  };
+}
+
+async function loadLeaveRequestsFromApi(showMessage=false){
+  try{
+    const res=await fetch('/api/leave-requests',{credentials:'same-origin',cache:'no-store'});
+    const data=await res.json().catch(()=>({}));
+    if(res.status===401){location.replace('/login?next=%2Fhr.html');return false}
+    if(!res.ok){
+      console.error('Leave Requests API:',data);
+      if(showMessage) toast(data.error||'Unable to load leave requests');
+      return false;
+    }
+    state.leaves=(data.leave_requests||[]).map(dbLeaveToUi);
+    save();
+    renderAll();
+    if(showMessage) toast('Leave requests refreshed from Supabase');
+    return true;
+  }catch(err){
+    console.error(err);
+    if(showMessage) toast('Unable to connect to leave requests database');
+    return false;
+  }
+}
+
+function renderLeave(){
+  const q=qs('leaveSearch').value.toLowerCase(),sf=qs('leaveStatusFilter').value;
+  const rows=state.leaves.filter(l=>(!q||`${empName(l.employeeId)} ${l.type}`.toLowerCase().includes(q))&&(!sf||l.status===sf));
+  qs('leaveRows').innerHTML=rows.map(l=>`<tr><td><button class="name-link" onclick="viewEmployee('${l.employeeId}')">${esc(empName(l.employeeId))}</button></td><td>${esc(empById(l.employeeId)?.branch||'-')}</td><td>${esc(l.type)}</td><td>${l.start} → ${l.end}</td><td>${l.days}</td><td>${esc(l.reason||'-')}</td><td><span class="pill ${l.status==='Approved'?'success':l.status==='Rejected'?'danger':'warning'}">${esc(l.status)}</span></td><td>${l.status==='Pending'?`<button class="btn sm success" onclick="setLeaveStatus('${l.id}','Approved')">Approve</button> <button class="btn sm danger" onclick="setLeaveStatus('${l.id}','Rejected')">Reject</button>`:`<span style="color:var(--muted);font-size:9px">Reviewed</span>`}</td></tr>`).join('')||'<tr><td colspan="8" class="empty">No leave requests.</td></tr>';
+  qs('leavePending').textContent=state.leaves.filter(l=>l.status==='Pending').length;
+  qs('leaveApproved').textContent=state.leaves.filter(l=>l.status==='Approved').length;
+  qs('leaveRejected').textContent=state.leaves.filter(l=>l.status==='Rejected').length;
+  qs('leaveTotal').textContent=state.leaves.length;
+}
+
 ['leaveSearch','leaveStatusFilter'].forEach(id=>qs(id).addEventListener('input',renderLeave));
-function openLeave(empId=''){qs('leaveEmployee').value=empId||activeEmployees()[0]?.id||'';qs('leaveStart').value=today();qs('leaveEnd').value=today();qs('leaveReason').value='';openModal('leaveModal')} qs('leaveForm').onsubmit=e=>{e.preventDefault();const emp=qs('leaveEmployee').value,start=qs('leaveStart').value,end=qs('leaveEnd').value;state.leaves.push({id:uid(),employeeId:emp,type:qs('leaveType').value,start,end,days:daysBetween(start,end),reason:qs('leaveReason').value,status:'Pending'});addAudit('Leave',`Submitted leave request for ${empName(emp)}`,'Review');save();closeModal('leaveModal');renderAll()}; function setLeaveStatus(id,status){const l=state.leaves.find(x=>x.id===id);if(!l)return;l.status=status;addAudit('Leave',`${status} leave request for ${empName(l.employeeId)}`,status==='Rejected'?'Critical':'Review');save();renderAll()} function exportLeave(){csv('leave.csv',[['Employee','Branch','Type','Start','End','Days','Reason','Status'],...state.leaves.map(l=>[empName(l.employeeId),empById(l.employeeId)?.branch,l.type,l.start,l.end,l.days,l.reason,l.status])])}
+
+function openLeave(empId=''){
+  qs('leaveEmployee').value=empId||activeEmployees()[0]?.id||'';
+  qs('leaveType').value='Vacation Leave';
+  qs('leaveStart').value=today();
+  qs('leaveEnd').value=today();
+  qs('leaveReason').value='';
+  openModal('leaveModal');
+}
+
+qs('leaveForm').onsubmit=async e=>{
+  e.preventDefault();
+  const button=e.submitter||qs('leaveForm').querySelector('button[type="submit"]');
+  const payload={
+    employee_id:qs('leaveEmployee').value,
+    leave_type:qs('leaveType').value,
+    start_date:qs('leaveStart').value,
+    end_date:qs('leaveEnd').value,
+    reason:qs('leaveReason').value.trim()||null
+  };
+  try{
+    if(!payload.employee_id){toast('Please select an employee.');return}
+    if(!payload.start_date||!payload.end_date){toast('Please select the leave dates.');return}
+    if(payload.end_date<payload.start_date){toast('End date cannot be earlier than start date.');return}
+    if(button){button.disabled=true;button.textContent='Submitting...'}
+    const res=await fetch('/api/leave-requests',{
+      method:'POST',
+      credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(payload)
+    });
+    const data=await res.json().catch(()=>({}));
+    if(!res.ok) throw new Error(data.error||'Unable to submit leave request');
+    closeModal('leaveModal');
+    await loadLeaveRequestsFromApi();
+    toast(data.message||'Leave request submitted to Supabase');
+  }catch(err){
+    console.error(err);
+    toast(err.message||'Unable to submit leave request');
+  }finally{
+    if(button){button.disabled=false;button.textContent='Submit Request'}
+  }
+};
+
+async function setLeaveStatus(id,status){
+  const l=state.leaves.find(x=>x.id===id);
+  if(!l)return;
+  if(!['Approved','Rejected'].includes(status))return;
+  const action=status==='Approved'?'approve':'reject';
+  if(!confirmAction(`${status==='Approved'?'Approve':'Reject'} leave request for ${empName(l.employeeId)}?`))return;
+  let reviewNote='';
+  if(status==='Rejected') reviewNote=prompt('Reason / review note (optional):','')||'';
+  try{
+    const res=await fetch(`/api/leave-requests/${encodeURIComponent(id)}`,{
+      method:'PATCH',
+      credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({status,review_note:reviewNote||null})
+    });
+    const data=await res.json().catch(()=>({}));
+    if(!res.ok) throw new Error(data.error||`Unable to ${action} leave request`);
+    await loadLeaveRequestsFromApi();
+    toast(data.message||`Leave request ${status.toLowerCase()}`);
+  }catch(err){
+    console.error(err);
+    toast(err.message||`Unable to ${action} leave request`);
+  }
+}
+
+function exportLeave(){
+  csv('leave.csv',[['Employee','Branch','Type','Start','End','Days','Reason','Status'],...state.leaves.map(l=>[empName(l.employeeId),empById(l.employeeId)?.branch,l.type,l.start,l.end,l.days,l.reason,l.status])]);
+}
 
 function renderBenefits(){qs('benefitPlans').innerHTML=state.benefitPlans.map(p=>`<div class="card" style="box-shadow:none"><div class="section-head"><div><h3>${esc(p.name)}</h3><p>Active benefit plan</p></div><span class="pill success">Active</span></div><div class="kpi">${peso(p.deduction)}</div><div class="kpi-note">Default deduction / cutoff</div><div class="toolbar" style="margin-top:10px;margin-bottom:0"><button class="btn sm" onclick="openBenefitPlan('${p.id}')">Edit Plan</button><button class="btn sm danger" onclick="deleteBenefitPlan('${p.id}')">Delete</button></div></div>`).join('');qs('benefitRows').innerHTML=activeEmployees().map(e=>{const b=state.benefits[e.id]||{};return `<tr><td><button class="name-link" onclick="viewEmployee('${e.id}')">${esc(e.name)}</button></td><td>${esc(e.branch)}</td><td>${peso(b.sss)}</td><td>${peso(b.philhealth)}</td><td>${peso(b.pagibig)}</td><td>${peso(b.other)}</td><td><b>${peso(benefitTotal(e.id))}</b></td><td><button class="btn sm" onclick="openBenefitEdit('${e.id}')">Edit Deductions</button></td></tr>`}).join('');qs('loanList').innerHTML=state.loans.length?state.loans.map(l=>`<div class="rowbox"><div><b>${esc(empName(l.employeeId))} — ${esc(l.type)}</b><small>Ref: ${esc(l.reference||'-')} • Balance ${peso(l.balance)} • ${peso(l.perCutoff)}/cutoff</small></div><div><span class="pill">${l.status}</span> <button class="btn sm" onclick="openLoan('${l.id}')">Edit</button> <button class="btn sm danger" onclick="deleteLoan('${l.id}')">Delete</button></div></div>`).join(''):'<div class="empty">No loan deductions.</div>'}
 function openBenefitEdit(id){const e=empById(id),b=state.benefits[id]||{};qs('benefitEmpId').value=id;qs('benefitEmpName').value=e?.name||'';qs('benefitSSS').value=b.sss||0;qs('benefitPhil').value=b.philhealth||0;qs('benefitPagibig').value=b.pagibig||0;qs('benefitOther').value=b.other||0;qs('benefitLoanList').innerHTML=state.loans.filter(l=>l.employeeId===id).map(l=>`<div class="rowbox"><div><b>${esc(l.type)}</b><small>Balance ${peso(l.balance)} • ${l.status}</small></div><button class="btn sm" onclick="closeModal('benefitEditModal');openLoan('${l.id}')">Edit</button></div>`).join('')||'<div class="empty">No loans for this employee.</div>';openModal('benefitEditModal')} function saveBenefitEdit(){const id=qs('benefitEmpId').value;state.benefits[id]={sss:Number(qs('benefitSSS').value||0),philhealth:Number(qs('benefitPhil').value||0),pagibig:Number(qs('benefitPagibig').value||0),other:Number(qs('benefitOther').value||0)};addAudit('Benefits',`Updated deductions for ${empName(id)}`);save();closeModal('benefitEditModal');renderAll()} function openLoanFromBenefit(){const id=qs('benefitEmpId').value;closeModal('benefitEditModal');openLoan('',id)}
@@ -421,7 +538,7 @@ function auditSeverity(a){const s=a.action.toLowerCase();return /delete|archive|
 function viewBranchEmployees(branch){qs('empSearch').value=branch;gotoPage('employees');renderEmployees();toast(`Showing employees in ${branch}`)} function renderSettings(){const s=state.settings;qs('settingsRows').innerHTML=`<div class="settings-row"><div><b>Company Name</b><small>Used throughout the HR system.</small></div><input id="setCompany" value="${esc(s.company)}"></div><div class="settings-row"><div><b>Work Start</b><small>Default start time for attendance and schedules.</small></div><input id="setStart" type="time" value="${s.start}"></div><div class="settings-row"><div><b>Work End</b><small>Default work end time.</small></div><input id="setEnd" type="time" value="${s.end}"></div><div class="settings-row"><div><b>Late Grace Period</b><small>Minutes after work start before employee is late.</small></div><input id="setGrace" type="number" value="${s.grace}"></div><div class="settings-row"><div><b>Payroll Days Basis</b><small>Reference monthly payroll days.</small></div><input id="setBasis" type="number" value="${s.payBasis}"></div><div class="settings-row"><div><b>Document Expiry Alert</b><small>Days before expiry to flag a document.</small></div><input id="setDocAlert" type="number" value="${s.docAlertDays}"></div>`;qs('branchSettings').innerHTML=BRANCHES.map(b=>{const e=state.employees.filter(x=>!x.archived&&x.branch===b);return `<div class="rowbox"><div><b>${esc(b)}</b><small>Active ${e.filter(x=>['Regular','Probationary'].includes(x.type)).length} • Regular ${e.filter(x=>x.type==='Regular').length} • Probationary ${e.filter(x=>x.type==='Probationary').length}</small></div><button class="btn sm" onclick="viewBranchEmployees('${b}')">View Employees</button></div>`}).join('')} function saveSettings(){state.settings.company=qs('setCompany').value;state.settings.start=qs('setStart').value;state.settings.end=qs('setEnd').value;state.settings.grace=Number(qs('setGrace').value||10);state.settings.payBasis=Number(qs('setBasis').value||26);state.settings.docAlertDays=Number(qs('setDocAlert').value||30);addAudit('Settings','Updated HR system settings','Review');save();renderAll();toast('Settings saved')} function downloadBackup(){download('underchargers-hr-backup.json',JSON.stringify(state,null,2),'application/json')}
 
 function renderAll(){populateOptions();renderDashboard();renderEmployees();renderAttendance();renderLeave();renderPayroll();renderBenefits();renderSchedules();renderDocuments();renderAnnouncements();renderReports();renderAudit();renderSettings()}
-qs('attDateFilter').value=today();qs('scheduleWeek').value=weekStart(today());populateOptions();qs('payPeriod').value=periodValue(PERIODS[1]);qs('reportPeriod').value=periodValue(PERIODS[1]);renderAll();loadEmployeesFromApi().then(()=>loadAttendanceFromApi());
+qs('attDateFilter').value=today();qs('scheduleWeek').value=weekStart(today());populateOptions();qs('payPeriod').value=periodValue(PERIODS[1]);qs('reportPeriod').value=periodValue(PERIODS[1]);renderAll();loadEmployeesFromApi().then(()=>loadAttendanceFromApi()).then(()=>loadLeaveRequestsFromApi());
 document.querySelectorAll('.modal').forEach(m=>m.addEventListener('click',e=>{if(e.target===m)m.classList.remove('show')}));
 </script>
 
