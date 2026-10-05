@@ -511,7 +511,110 @@ function renderBenefits(){qs('benefitPlans').innerHTML=state.benefitPlans.map(p=
 function openBenefitEdit(id){const e=empById(id),b=state.benefits[id]||{};qs('benefitEmpId').value=id;qs('benefitEmpName').value=e?.name||'';qs('benefitSSS').value=b.sss||0;qs('benefitPhil').value=b.philhealth||0;qs('benefitPagibig').value=b.pagibig||0;qs('benefitOther').value=b.other||0;qs('benefitLoanList').innerHTML=state.loans.filter(l=>l.employeeId===id).map(l=>`<div class="rowbox"><div><b>${esc(l.type)}</b><small>Balance ${peso(l.balance)} • ${l.status}</small></div><button class="btn sm" onclick="closeModal('benefitEditModal');openLoan('${l.id}')">Edit</button></div>`).join('')||'<div class="empty">No loans for this employee.</div>';openModal('benefitEditModal')} function saveBenefitEdit(){const id=qs('benefitEmpId').value;state.benefits[id]={sss:Number(qs('benefitSSS').value||0),philhealth:Number(qs('benefitPhil').value||0),pagibig:Number(qs('benefitPagibig').value||0),other:Number(qs('benefitOther').value||0)};addAudit('Benefits',`Updated deductions for ${empName(id)}`);save();closeModal('benefitEditModal');renderAll()} function openLoanFromBenefit(){const id=qs('benefitEmpId').value;closeModal('benefitEditModal');openLoan('',id)}
 function openLoan(id='',empId=''){const l=id?state.loans.find(x=>x.id===id):null;qs('loanId').value=l?.id||'';qs('loanTitle').textContent=l?'Edit Loan Deduction':'Add Loan Deduction';qs('loanEmployee').value=l?.employeeId||empId||activeEmployees()[0]?.id||'';qs('loanType').value=l?.type||'Company Loan';qs('loanRef').value=l?.reference||'';qs('loanOriginal').value=l?.originalAmount||'';qs('loanBalance').value=l?.balance||'';qs('loanCutoff').value=l?.perCutoff||'';qs('loanStart').value=l?.startDate||today();qs('loanStatus').value=l?.status||'Active';qs('loanNotes').value=l?.notes||'';openModal('loanModal')} function saveLoan(){const id=qs('loanId').value||uid(),old=state.loans.find(x=>x.id===id),obj={id,employeeId:qs('loanEmployee').value,type:qs('loanType').value,reference:qs('loanRef').value,originalAmount:Number(qs('loanOriginal').value||0),balance:Number(qs('loanBalance').value||0),perCutoff:Number(qs('loanCutoff').value||0),startDate:qs('loanStart').value,status:qs('loanStatus').value,notes:qs('loanNotes').value};if(old)state.loans=state.loans.map(x=>x.id===id?obj:x);else state.loans.push(obj);addAudit('Benefits',`${old?'Updated':'Added'} loan for ${empName(obj.employeeId)}`,'Review');save();closeModal('loanModal');renderAll()} function deleteLoan(id){const l=state.loans.find(x=>x.id===id);if(!l||!confirmAction(`Delete ${l.type} for ${empName(l.employeeId)}?`))return;state.loans=state.loans.filter(x=>x.id!==id);addAudit('Benefits',`Deleted loan for ${empName(l.employeeId)}`,'Critical');save();renderAll()} function openBenefitPlan(id=''){const p=id?state.benefitPlans.find(x=>x.id===id):null;qs('planId').value=p?.id||'';qs('benefitPlanTitle').textContent=p?'Edit Benefit Plan':'Add Benefit Plan';qs('planName').value=p?.name||'';qs('planDeduction').value=p?.deduction??'';openModal('benefitPlanModal')} function saveBenefitPlan(){const name=qs('planName').value.trim();if(!name){toast('Enter a benefit plan name.');return}const id=qs('planId').value||uid(),obj={id,name,deduction:Number(qs('planDeduction').value||0)},old=state.benefitPlans.find(x=>x.id===id);if(old)state.benefitPlans=state.benefitPlans.map(x=>x.id===id?obj:x);else state.benefitPlans.push(obj);addAudit('Benefits',`${old?'Updated':'Added'} benefit plan ${name}`);save();closeModal('benefitPlanModal');renderAll()} function deleteBenefitPlan(id){const p=state.benefitPlans.find(x=>x.id===id);if(!p||!confirmAction(`Delete benefit plan ${p.name}?`))return;state.benefitPlans=state.benefitPlans.filter(x=>x.id!==id);addAudit('Benefits',`Deleted benefit plan ${p.name}`,'Critical');save();renderAll()} function exportBenefits(){csv('benefits.csv',[['Employee','SSS','PhilHealth','Pag-IBIG','Other','Total'],...activeEmployees().map(e=>{const b=state.benefits[e.id]||{};return[e.name,b.sss,b.philhealth,b.pagibig,b.other,benefitTotal(e.id)]})])}
 
-function generatePayroll(){const period=qs('payPeriod').value,[start,end]=period.split('|');activeEmployees().forEach(e=>{let p=state.payroll.find(x=>x.employeeId===e.id&&x.period===period);if(p?.status==='Paid')return;const days=payableDays(e.id,start,end),comm=commissionFor(e.id,period),gross=days*Number(e.dailyRate||0)+comm,benefits=days?benefitTotal(e.id):0,loans=days?activeLoanDeduction(e.id):0,ded=benefits+loans,net=Math.max(0,gross-ded),obj={id:p?.id||uid(),employeeId:e.id,period,daysWorked:days,dailyRate:e.dailyRate,commission:comm,gross,benefitDeductions:benefits,loanDeductions:loans,deductions:ded,net,status:p?.status||'Unpaid'};if(p)state.payroll=state.payroll.map(x=>x.id===p.id?obj:x);else state.payroll.push(obj)});addAudit('Payroll',`Generated payroll for ${periodLabel(period)}`,'Review');save();renderAll();toast('Payroll generated')}
+async function generatePayroll(){
+  try{
+    const period = qs('payPeriod').value;
+
+    if(!period){
+      toast('Please select a payroll period.');
+      return;
+    }
+
+    const [start,end] = period.split('|');
+
+    if(!start || !end){
+      toast('Invalid payroll period.');
+      return;
+    }
+
+    const confirmed = confirm(
+      `Generate / refresh payroll from ${start} to ${end}?`
+    );
+
+    if(!confirmed) return;
+
+    toast('Generating payroll...');
+
+    const response = await fetch('/api/payroll',{
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json'
+      },
+      credentials:'include',
+      body:JSON.stringify({
+        period_start:start,
+        period_end:end
+      })
+    });
+
+    const result = await response.json();
+
+    if(!response.ok){
+      throw new Error(
+        result.error || 'Unable to generate payroll.'
+      );
+    }
+
+    const loadResponse = await fetch(
+      `/api/payroll?period_start=${encodeURIComponent(start)}&period_end=${encodeURIComponent(end)}`,
+      {
+        method:'GET',
+        credentials:'include',
+        cache:'no-store'
+      }
+    );
+
+    const loadResult = await loadResponse.json();
+
+    if(!loadResponse.ok){
+      throw new Error(
+        loadResult.error || 'Unable to reload payroll.'
+      );
+    }
+
+    const apiPayroll = Array.isArray(loadResult.payroll)
+      ? loadResult.payroll
+      : [];
+
+    const mappedPayroll = apiPayroll.map(p=>({
+      id:p.id,
+      employeeId:p.employee_id,
+      period:`${p.period_start}|${p.period_end}`,
+      daysWorked:Number(p.days_worked || 0),
+      dailyRate:Number(p.daily_rate || 0),
+      commission:Number(p.commission_total || 0),
+      gross:Number(p.gross_pay || 0),
+      benefitDeductions:Number(p.benefit_deductions || 0),
+      loanDeductions:Number(p.loan_deductions || 0),
+      lateDeductions:Number(p.late_deductions || 0),
+      otherDeductions:Number(p.other_deductions || 0),
+      deductions:Number(p.total_deductions || 0),
+      net:Number(p.net_pay || 0),
+      status:p.status || 'Unpaid'
+    }));
+
+    state.payroll = state.payroll.filter(
+      p=>p.period !== period
+    );
+
+    state.payroll.push(...mappedPayroll);
+
+    save();
+    renderPayroll();
+    renderDashboard();
+
+    toast(
+      `Payroll generated: ${result.generated_count || 0} employee(s)`
+    );
+
+  }catch(error){
+    console.error('Payroll generation error:',error);
+    toast(
+      error.message || 'Payroll generation failed.'
+    );
+  }
+}
+    
 function renderPayroll(){const period=qs('payPeriod').value,sf=qs('payStatusFilter').value;const rows=state.payroll.filter(p=>p.period===period&&(!sf||p.status===sf));qs('payrollRows').innerHTML=rows.map(p=>`<tr><td><button class="name-link" onclick="viewEmployee('${p.employeeId}')">${esc(empName(p.employeeId))}</button></td><td>${esc(empById(p.employeeId)?.branch||'-')}</td><td><b>${p.daysWorked}</b></td><td>${peso(p.dailyRate)}</td><td>${peso(p.commission)}</td><td><b>${peso(p.gross)}</b></td><td>${peso(p.benefitDeductions)}</td><td>${peso(p.loanDeductions)}</td><td><b>${peso(p.deductions)}</b></td><td><b>${peso(p.net)}</b></td><td><span class="pill ${p.status==='Paid'?'success':'warning'}">${p.status}</span></td><td><button class="btn sm" onclick="viewPayslip('${p.id}')">View Payslip</button>${p.status==='Unpaid'?` <button class="btn sm success" onclick="markPaid('${p.id}')">Mark Paid</button>`:''}</td></tr>`).join('')||'<tr><td colspan="12" class="empty">No payroll records. Click Generate / Refresh Payroll.</td></tr>';qs('payCount').textContent=rows.length;qs('payDays').textContent=rows.reduce((s,p)=>s+p.daysWorked,0);qs('payGross').textContent=peso(rows.reduce((s,p)=>s+p.gross,0));qs('payNet').textContent=peso(rows.reduce((s,p)=>s+p.net,0));renderCommissions()}
 qs('payPeriod').addEventListener('change',()=>{renderPayroll();renderReports()});qs('payStatusFilter').addEventListener('change',renderPayroll);
 function markPaid(id){const p=state.payroll.find(x=>x.id===id);if(!p||!confirmAction(`Mark payroll for ${empName(p.employeeId)} as paid?`))return;p.status='Paid';state.loans.filter(l=>l.employeeId===p.employeeId&&l.status==='Active').forEach(l=>{l.balance=Math.max(0,Number(l.balance)-Math.min(Number(l.perCutoff),Number(l.balance)));if(l.balance<=0)l.status='Paid'});addAudit('Payroll',`Marked payroll paid for ${empName(p.employeeId)}`,'Critical');save();renderAll()}
