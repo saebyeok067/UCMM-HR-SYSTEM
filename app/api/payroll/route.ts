@@ -592,7 +592,7 @@ export async function POST(
 
         status:
           existingPayroll?.status ||
-          "Unpaid",
+          "Generated",
 
         generated_by:
           user.id,
