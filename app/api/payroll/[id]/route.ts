@@ -50,7 +50,7 @@ async function getCurrentUserAndProfile() {
   const { data: profile, error: profileError } = await admin
     .from("profiles")
     .select("id")
-    .eq("user_id", user.id)
+    .eq("id", user.id)
     .single();
 
   if (profileError || !profile) return null;
