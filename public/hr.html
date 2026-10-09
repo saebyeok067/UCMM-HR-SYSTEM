@@ -508,7 +508,7 @@ function exportLeave(){
 }
 
 function renderBenefits(){qs('benefitPlans').innerHTML=state.benefitPlans.map(p=>`<div class="card" style="box-shadow:none"><div class="section-head"><div><h3>${esc(p.name)}</h3><p>Active benefit plan</p></div><span class="pill success">Active</span></div><div class="kpi">${peso(p.deduction)}</div><div class="kpi-note">Default deduction / cutoff</div><div class="toolbar" style="margin-top:10px;margin-bottom:0"><button class="btn sm" onclick="openBenefitPlan('${p.id}')">Edit Plan</button><button class="btn sm danger" onclick="deleteBenefitPlan('${p.id}')">Delete</button></div></div>`).join('');qs('benefitRows').innerHTML=activeEmployees().map(e=>{const b=state.benefits[e.id]||{};return `<tr><td><button class="name-link" onclick="viewEmployee('${e.id}')">${esc(e.name)}</button></td><td>${esc(e.branch)}</td><td>${peso(b.sss)}</td><td>${peso(b.philhealth)}</td><td>${peso(b.pagibig)}</td><td>${peso(b.other)}</td><td><b>${peso(benefitTotal(e.id))}</b></td><td><button class="btn sm" onclick="openBenefitEdit('${e.id}')">Edit Deductions</button></td></tr>`}).join('');qs('loanList').innerHTML=state.loans.length?state.loans.map(l=>`<div class="rowbox"><div><b>${esc(empName(l.employeeId))} — ${esc(l.type)}</b><small>Ref: ${esc(l.reference||'-')} • Balance ${peso(l.balance)} • ${peso(l.perCutoff)}/cutoff</small></div><div><span class="pill">${l.status}</span> <button class="btn sm" onclick="openLoan('${l.id}')">Edit</button> <button class="btn sm danger" onclick="deleteLoan('${l.id}')">Delete</button></div></div>`).join(''):'<div class="empty">No loan deductions.</div>'}
-function openBenefitEdit(id){const e=empById(id),b=state.benefits[id]||{};qs('benefitEmpId').value=id;qs('benefitEmpName').value=e?.name||'';qs('benefitSSS').value=b.sss||0;qs('benefitPhil').value=b.philhealth||0;qs('benefitPagibig').value=b.pagibig||0;qs('benefitOther').value=b.other||0;qs('benefitLoanList').innerHTML=state.loans.filter(l=>l.employeeId===id).map(l=>`<div class="rowbox"><div><b>${esc(l.type)}</b><small>Balance ${peso(l.balance)} • ${l.status}</small></div><button class="btn sm" onclick="closeModal('benefitEditModal');openLoan('${l.id}')">Edit</button></div>`).join('')||'<div class="empty">No loans for this employee.</div>';openModal('benefitEditModal')} function saveBenefitEdit(){const id=qs('benefitEmpId').value;state.benefits[id]={sss:Number(qs('benefitSSS').value||0),philhealth:Number(qs('benefitPhil').value||0),pagibig:Number(qs('benefitPagibig').value||0),other:Number(qs('benefitOther').value||0)};addAudit('Benefits',`Updated deductions for ${empName(id)}`);save();closeModal('benefitEditModal');renderAll()} function openLoanFromBenefit(){const id=qs('benefitEmpId').value;closeModal('benefitEditModal');openLoan('',id)}
+function openBenefitEdit(id){const e=empById(id),b=state.benefits[id]||{};qs('benefitEmpId').value=id;qs('benefitEmpName').value=e?.name||'';qs('benefitSSS').value=b.sss||0;qs('benefitPhil').value=b.philhealth||0;qs('benefitPagibig').value=b.pagibig||0;qs('benefitOther').value=b.other||0;qs('benefitLoanList').innerHTML=state.loans.filter(l=>l.employeeId===id).map(l=>`<div class="rowbox"><div><b>${esc(l.type)}</b><small>Balance ${peso(l.balance)} • ${l.status}</small></div><button class="btn sm" onclick="closeModal('benefitEditModal');openLoan('${l.id}')">Edit</button></div>`).join('')||'<div class="empty">No loans for this employee.</div>';openModal('benefitEditModal')} function saveBenefitEditOld(){const id=qs('benefitEmpId').value;state.benefits[id]={sss:Number(qs('benefitSSS').value||0),philhealth:Number(qs('benefitPhil').value||0),pagibig:Number(qs('benefitPagibig').value||0),other:Number(qs('benefitOther').value||0)};addAudit('Benefits',`Updated deductions for ${empName(id)}`);save();closeModal('benefitEditModal');renderAll()} function openLoanFromBenefit(){const id=qs('benefitEmpId').value;closeModal('benefitEditModal');openLoan('',id)}
 function openLoan(id='',empId=''){const l=id?state.loans.find(x=>x.id===id):null;qs('loanId').value=l?.id||'';qs('loanTitle').textContent=l?'Edit Loan Deduction':'Add Loan Deduction';qs('loanEmployee').value=l?.employeeId||empId||activeEmployees()[0]?.id||'';qs('loanType').value=l?.type||'Company Loan';qs('loanRef').value=l?.reference||'';qs('loanOriginal').value=l?.originalAmount||'';qs('loanBalance').value=l?.balance||'';qs('loanCutoff').value=l?.perCutoff||'';qs('loanStart').value=l?.startDate||today();qs('loanStatus').value=l?.status||'Active';qs('loanNotes').value=l?.notes||'';openModal('loanModal')} function saveLoan(){const id=qs('loanId').value||uid(),old=state.loans.find(x=>x.id===id),obj={id,employeeId:qs('loanEmployee').value,type:qs('loanType').value,reference:qs('loanRef').value,originalAmount:Number(qs('loanOriginal').value||0),balance:Number(qs('loanBalance').value||0),perCutoff:Number(qs('loanCutoff').value||0),startDate:qs('loanStart').value,status:qs('loanStatus').value,notes:qs('loanNotes').value};if(old)state.loans=state.loans.map(x=>x.id===id?obj:x);else state.loans.push(obj);addAudit('Benefits',`${old?'Updated':'Added'} loan for ${empName(obj.employeeId)}`,'Review');save();closeModal('loanModal');renderAll()} function deleteLoan(id){const l=state.loans.find(x=>x.id===id);if(!l||!confirmAction(`Delete ${l.type} for ${empName(l.employeeId)}?`))return;state.loans=state.loans.filter(x=>x.id!==id);addAudit('Benefits',`Deleted loan for ${empName(l.employeeId)}`,'Critical');save();renderAll()} function openBenefitPlan(id=''){const p=id?state.benefitPlans.find(x=>x.id===id):null;qs('planId').value=p?.id||'';qs('benefitPlanTitle').textContent=p?'Edit Benefit Plan':'Add Benefit Plan';qs('planName').value=p?.name||'';qs('planDeduction').value=p?.deduction??'';openModal('benefitPlanModal')} function saveBenefitPlan(){const name=qs('planName').value.trim();if(!name){toast('Enter a benefit plan name.');return}const id=qs('planId').value||uid(),obj={id,name,deduction:Number(qs('planDeduction').value||0)},old=state.benefitPlans.find(x=>x.id===id);if(old)state.benefitPlans=state.benefitPlans.map(x=>x.id===id?obj:x);else state.benefitPlans.push(obj);addAudit('Benefits',`${old?'Updated':'Added'} benefit plan ${name}`);save();closeModal('benefitPlanModal');renderAll()} function deleteBenefitPlan(id){const p=state.benefitPlans.find(x=>x.id===id);if(!p||!confirmAction(`Delete benefit plan ${p.name}?`))return;state.benefitPlans=state.benefitPlans.filter(x=>x.id!==id);addAudit('Benefits',`Deleted benefit plan ${p.name}`,'Critical');save();renderAll()} function exportBenefits(){csv('benefits.csv',[['Employee','SSS','PhilHealth','Pag-IBIG','Other','Total'],...activeEmployees().map(e=>{const b=state.benefits[e.id]||{};return[e.name,b.sss,b.philhealth,b.pagibig,b.other,benefitTotal(e.id)]})])}
 
 async function generatePayroll(){
@@ -693,6 +693,49 @@ function viewBranchEmployees(branch){qs('empSearch').value=branch;gotoPage('empl
 function renderAll(){populateOptions();renderDashboard();renderEmployees();renderAttendance();renderLeave();renderPayroll();renderBenefits();renderSchedules();renderDocuments();renderAnnouncements();renderReports();renderAudit();renderSettings()}
 qs('attDateFilter').value=today();qs('scheduleWeek').value=weekStart(today());populateOptions();qs('payPeriod').value=periodValue(PERIODS[1]);qs('reportPeriod').value=periodValue(PERIODS[1]);renderAll();loadEmployeesFromApi().then(()=>loadAttendanceFromApi()).then(()=>loadLeaveRequestsFromApi());
 document.querySelectorAll('.modal').forEach(m=>m.addEventListener('click',e=>{if(e.target===m)m.classList.remove('show')}));
+async function saveBenefitEdit(){
+  const id=qs('benefitEmpId').value;
+
+  const benefits={
+    sss:Number(qs('benefitSSS').value||0),
+    philhealth:Number(qs('benefitPhil').value||0),
+    pagibig:Number(qs('benefitPagibig').value||0),
+    other:Number(qs('benefitOther').value||0)
+  };
+
+  try{
+    const res=await fetch('/api/benefits',{
+      method:'POST',
+      credentials:'same-origin',
+      headers:{
+        'Content-Type':'application/json'
+      },
+      body:JSON.stringify({
+        employee_id:id,
+        sss:benefits.sss,
+        philhealth:benefits.philhealth,
+        pagibig:benefits.pagibig,
+        other:benefits.other
+      })
+    });
+
+    const data=await res.json().catch(()=>({}));
+
+    if(!res.ok){
+      throw new Error(data.error||'Unable to save benefit deductions');
+    }
+
+    state.benefits[id]=benefits;
+    save();
+    closeModal('benefitEditModal');
+    renderAll();
+    toast('Employee benefit deductions saved');
+
+  }catch(error){
+    console.error('Benefit save error:',error);
+    toast(error.message||'Unable to save benefit deductions');
+  }
+}
 </script>
 
 <!-- AUTH PROFILE BOOTSTRAP -->
