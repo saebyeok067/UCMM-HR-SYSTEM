@@ -210,7 +210,73 @@ async function loadEmployeesFromApi(showMessage=false){
     return false;
   }
 }
+async function loadBenefitsFromApi(){
+  try{
+    const res=await fetch('/api/benefits',{
+      credentials:'same-origin',
+      cache:'no-store'
+    });
 
+    const data=await res.json().catch(()=>({}));
+
+    if(!res.ok){
+      console.error('Benefits API:',data);
+      return false;
+    }
+
+    state.employees.forEach(e=>{
+      state.benefits[e.id]={
+        sss:0,
+        philhealth:0,
+        pagibig:0,
+        other:0
+      };
+    });
+
+    (data.benefits||[]).forEach(b=>{
+      const employeeId=b.employee_id;
+
+      if(!employeeId) return;
+
+      if(!state.benefits[employeeId]){
+        state.benefits[employeeId]={
+          sss:0,
+          philhealth:0,
+          pagibig:0,
+          other:0
+        };
+      }
+
+      const amount=Number(
+        b.deduction_per_cutoff ??
+        b.employee_amount ??
+        0
+      );
+
+      const type=String(b.benefit_type||'')
+        .toLowerCase()
+        .replace(/[^a-z]/g,'');
+
+      if(type==='sss'){
+        state.benefits[employeeId].sss=amount;
+      }else if(type==='philhealth'){
+        state.benefits[employeeId].philhealth=amount;
+      }else if(type==='pagibig'){
+        state.benefits[employeeId].pagibig=amount;
+      }else if(type==='other'){
+        state.benefits[employeeId].other=amount;
+      }
+    });
+
+    save();
+    renderAll();
+    return true;
+
+  }catch(err){
+    console.error('Unable to load benefits:',err);
+    return false;
+  }
+}
 function renderEmployees(){const q=qs('empSearch').value.toLowerCase(),df=qs('empDeptFilter').value,sf=qs('empStatusFilter').value;const rows=state.employees.filter(e=>!e.archived&&(!q||`${e.name} ${e.code} ${e.role} ${e.email} ${e.branch} ${e.dept}`.toLowerCase().includes(q))&&(!df||e.dept===df)&&(!sf||e.type===sf));qs('employeeRows').innerHTML=rows.map(e=>`<tr><td><button class="name-link" onclick="viewEmployee('${e.id}')">${esc(e.name)}</button><div style="color:var(--muted);font-size:8.5px">Hired ${e.hire||'-'}</div></td><td>${esc(e.code)}</td><td><span class="pill">${esc(e.branch)}</span></td><td><b>${esc(e.dept)}</b><br><span style="color:var(--muted)">${esc(e.role)}</span></td><td>${peso(e.dailyRate)}</td><td>${esc(e.email||'-')}</td><td><span class="pill ${['Regular'].includes(e.type)?'success':e.type==='Probationary'?'warning':'danger'}">${esc(e.type)}</span></td><td><div class="toolbar" style="margin:0"><button class="btn sm" onclick="viewEmployee('${e.id}')">View</button><button class="btn sm" onclick="openEmployee('${e.id}')">Edit</button><button class="btn sm danger" onclick="archiveEmployee('${e.id}')">Archive</button></div></td></tr>`).join('')||'<tr><td colspan="8" class="empty">No employees found in Supabase yet.</td></tr>'}
 ['empSearch','empDeptFilter','empStatusFilter'].forEach(id=>qs(id).addEventListener('input',renderEmployees));
 function openEmployee(id=''){const e=id?empById(id):null;qs('employeeModalTitle').textContent=e?'Edit Employee':'Add Employee';qs('empId').value=e?.id||'';qs('empName').value=e?.name||'';qs('empCode').value=e?.code||'';qs('empCode').placeholder='Auto-generated if blank';qs('empEmail').value=e?.email||'';qs('empContact').value=e?.contact||'';qs('empBranch').value=e?.branch||BRANCHES[0];qs('empDept').value=e?.dept||'';qs('empRole').value=e?.role||'';qs('empStatus').value=e?.type||'Probationary';qs('empRate').value=e?.dailyRate||'';qs('empHire').value=e?.hire||today();const b=state.benefits[e?.id]||{sss:0,philhealth:0,pagibig:0,other:0};qs('empSSS').value=b.sss||0;qs('empPhil').value=b.philhealth||0;qs('empPagibig').value=b.pagibig||0;openModal('employeeModal')}
@@ -691,7 +757,7 @@ function auditSeverity(a){const s=a.action.toLowerCase();return /delete|archive|
 function viewBranchEmployees(branch){qs('empSearch').value=branch;gotoPage('employees');renderEmployees();toast(`Showing employees in ${branch}`)} function renderSettings(){const s=state.settings;qs('settingsRows').innerHTML=`<div class="settings-row"><div><b>Company Name</b><small>Used throughout the HR system.</small></div><input id="setCompany" value="${esc(s.company)}"></div><div class="settings-row"><div><b>Work Start</b><small>Default start time for attendance and schedules.</small></div><input id="setStart" type="time" value="${s.start}"></div><div class="settings-row"><div><b>Work End</b><small>Default work end time.</small></div><input id="setEnd" type="time" value="${s.end}"></div><div class="settings-row"><div><b>Late Grace Period</b><small>Minutes after work start before employee is late.</small></div><input id="setGrace" type="number" value="${s.grace}"></div><div class="settings-row"><div><b>Payroll Days Basis</b><small>Reference monthly payroll days.</small></div><input id="setBasis" type="number" value="${s.payBasis}"></div><div class="settings-row"><div><b>Document Expiry Alert</b><small>Days before expiry to flag a document.</small></div><input id="setDocAlert" type="number" value="${s.docAlertDays}"></div>`;qs('branchSettings').innerHTML=BRANCHES.map(b=>{const e=state.employees.filter(x=>!x.archived&&x.branch===b);return `<div class="rowbox"><div><b>${esc(b)}</b><small>Active ${e.filter(x=>['Regular','Probationary'].includes(x.type)).length} • Regular ${e.filter(x=>x.type==='Regular').length} • Probationary ${e.filter(x=>x.type==='Probationary').length}</small></div><button class="btn sm" onclick="viewBranchEmployees('${b}')">View Employees</button></div>`}).join('')} function saveSettings(){state.settings.company=qs('setCompany').value;state.settings.start=qs('setStart').value;state.settings.end=qs('setEnd').value;state.settings.grace=Number(qs('setGrace').value||10);state.settings.payBasis=Number(qs('setBasis').value||26);state.settings.docAlertDays=Number(qs('setDocAlert').value||30);addAudit('Settings','Updated HR system settings','Review');save();renderAll();toast('Settings saved')} function downloadBackup(){download('underchargers-hr-backup.json',JSON.stringify(state,null,2),'application/json')}
 
 function renderAll(){populateOptions();renderDashboard();renderEmployees();renderAttendance();renderLeave();renderPayroll();renderBenefits();renderSchedules();renderDocuments();renderAnnouncements();renderReports();renderAudit();renderSettings()}
-qs('attDateFilter').value=today();qs('scheduleWeek').value=weekStart(today());populateOptions();qs('payPeriod').value=periodValue(PERIODS[1]);qs('reportPeriod').value=periodValue(PERIODS[1]);renderAll();loadEmployeesFromApi().then(()=>loadAttendanceFromApi()).then(()=>loadLeaveRequestsFromApi());
+qs('attDateFilter').value=today();qs('scheduleWeek').value=weekStart(today());populateOptions();qs('payPeriod').value=periodValue(PERIODS[1]);qs('reportPeriod').value=periodValue(PERIODS[1]);renderAll();loadEmployeesFromApi().then(()=>loadBenefitsFromApi()).then(()=>loadAttendanceFromApi()).then(()=>loadLeaveRequestsFromApi());
 document.querySelectorAll('.modal').forEach(m=>m.addEventListener('click',e=>{if(e.target===m)m.classList.remove('show')}));
 async function saveBenefitEdit(){
   const id=qs('benefitEmpId').value;
