@@ -670,7 +670,48 @@ function openLoan(id='',empId=''){const l=id?state.loans.find(x=>x.id===id):null
             'Unable to save benefit plan'
         );
     }
-} function deleteBenefitPlan(id){const p=state.benefitPlans.find(x=>x.id===id);if(!p||!confirmAction(`Delete benefit plan ${p.name}?`))return;state.benefitPlans=state.benefitPlans.filter(x=>x.id!==id);addAudit('Benefits',`Deleted benefit plan ${p.name}`,'Critical');save();renderAll()} function exportBenefits(){csv('benefits.csv',[['Employee','SSS','PhilHealth','Pag-IBIG','Other','Total'],...activeEmployees().map(e=>{const b=state.benefits[e.id]||{};return[e.name,b.sss,b.philhealth,b.pagibig,b.other,benefitTotal(e.id)]})])}
+} async function deleteBenefitPlan(id){
+    const p = state.benefitPlans.find(x => x.id === id);
+
+    if(!p){
+        toast('Benefit plan not found.');
+        return;
+    }
+
+    if(!confirmAction(`Delete benefit plan ${p.name}?`)){
+        return;
+    }
+
+    try{
+        const res = await fetch(
+            `/api/benefit-plans/${encodeURIComponent(id)}`,
+            {
+                method:'DELETE',
+                credentials:'same-origin'
+            }
+        );
+
+        const data = await res.json().catch(()=>({}));
+
+        if(!res.ok){
+            throw new Error(
+                data.error || 'Unable to delete benefit plan'
+            );
+        }
+
+        await loadBenefitPlansFromApi();
+
+        toast('Benefit plan deleted');
+
+    }catch(err){
+        console.error('Benefit plan delete error:',err);
+
+        toast(
+            err.message ||
+            'Unable to delete benefit plan'
+        );
+    }
+} function exportBenefits(){csv('benefits.csv',[['Employee','SSS','PhilHealth','Pag-IBIG','Other','Total'],...activeEmployees().map(e=>{const b=state.benefits[e.id]||{};return[e.name,b.sss,b.philhealth,b.pagibig,b.other,benefitTotal(e.id)]})])}
 
 async function generatePayroll(){
   try{
